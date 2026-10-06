@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema de Seguridad - Panel</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #1a1d24;
+    --accent: #ff4d4d;
+    --accent-off: #2e7d32;
+    --text: #e8e8e8;
+    --muted: #8a8f98;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px;
+    min-height: 100vh;
+  }
+  .wrap { width: 100%; max-width: 420px; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .status-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); display: inline-block; margin-right: 8px; }
+  .dot.online { background: var(--accent-off); box-shadow: 0 0 8px var(--accent-off); }
+  .dot.alert { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .big-btn {
+    width: 100%;
+    padding: 18px;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.05rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  .big-btn:active { transform: scale(0.97); }
+  .armado { background: var(--accent); color: white; }
+  .desarmado { background: #333842; color: var(--text); }
+  .movimiento-box {
+    text-align: center;
+    padding: 16px;
+    border-radius: 12px;
+    background: #15171c;
+    margin-top: 12px;
+    font-size: 0.95rem;
+  }
+  label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #0f1115;
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+  .save-btn {
+    margin-top: 10px;
+    padding: 8px 14px;
+    background: #333842;
+    color: var(--text);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .hint { font-size: 0.75rem; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔐 Sistema de Seguridad</h1>
+  <div class="sub">Panel de control — PIR + ESP32 + Blynk</div>
+
+  <div class="card">
+    <div class="status-row">
+      <div><span id="connDot" class="dot"></span><span id="connText">Verificando conexión...</span></div>
+    </div>
+
+    <button id="toggleBtn" class="big-btn desarmado" onclick="toggleArmado()">Cargando...</button>
+
+    <div class="movimiento-box" id="movBox">
+      Sin movimiento reciente
+    </div>
+  </div>
+
+  <div class="card">
+    <label for="tokenInput">Token de autenticación Blynk</label>
+    <input type="text" id="tokenInput" placeholder="Pega aquí tu BLYNK_AUTH_TOKEN">
+    <button class="save-btn" onclick="guardarToken()">Guardar</button>
+    <div class="hint">
+      El token se guarda solo en este navegador (localStorage), nunca se envía a ningún servidor
+      aparte de Blynk. Cada compañero que abra este archivo debe pegar el mismo token para controlar
+      el mismo dispositivo.
+    </div>
+  </div>
+</div>
+
+<script>
+  let TOKEN = localStorage.getItem('blynk_token') || '';
+  let armado = false;
+
+  document.getElementById('tokenInput').value = TOKEN;
+
+  function guardarToken() {
+    TOKEN = document.getElementById('tokenInput').value.trim();
+    localStorage.setItem('blynk_token', TOKEN);
+    actualizarEstado();
+  }
+
+  async function blynkGet(pin) {
+    const res = await fetch(`https://blynk.cloud/external/api/get?token=${TOKEN}&${pin}`);
+    return res.text();
+  }
+
+  async function blynkSet(pin, valor) {
+    await fetch(`https://blynk.cloud/external/api/update?token=${TOKEN}&${pin}=${valor}`);
+  }
+
+  async function toggleArmado() {
+    if (!TOKEN) { alert('Primero pega y guarda tu token de Blynk abajo.'); return; }
+    armado = !armado;
+    await blynkSet('v0', armado ? 1 : 0);
+    pintarBoton();
+  }
+
+  function pintarBoton() {
+    const btn = document.getElementById('toggleBtn');
+    if (armado) {
+      btn.textContent = 'ARMADO — Toca para desarmar';
+      btn.className = 'big-btn armado';
+    } else {
+      btn.textContent = 'DESARMADO — Toca para armar';
+      btn.className = 'big-btn desarmado';
+    }
+  }
+
+  async function actualizarEstado() {
+    if (!TOKEN) {
+      document.getElementById('connText').textContent = 'Falta pegar el token';
+      return;
+    }
+    try {
+      const v0 = await blynkGet('v0');
+      const v1 = await blynkGet('v1');
+      armado = v0.trim() === '["1"]' || v0.trim() === '1';
+      pintarBoton();
+
+      const movimiento = v1.trim() === '["1"]' || v1.trim() === '1';
+      const movBox = document.getElementById('movBox');
+      movBox.textContent = movimiento ? '🚨 ¡Movimiento detectado!' : 'Sin movimiento reciente';
+      movBox.style.color = movimiento ? '#ff4d4d' : '#e8e8e8';
+
+      document.getElementById('connDot').className = 'dot online';
+      document.getElementById('connText').textContent = 'Conectado';
+    } catch (e) {
+      document.getElementById('connDot').className = 'dot';
+      document.getElementById('connText').textContent = 'Sin conexión con Blynk';
+    }
+  }
+
+  actualizarEstado();
+  setInterval(actualizarEstado, 3000);
+</script>
+</body>
+</html>
